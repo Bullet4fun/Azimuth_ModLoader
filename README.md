@@ -1,7 +1,7 @@
 # FH2 Mod Loader
 
 A mod loader for **Forza Horizon 2** and **Forza Horizon 2 Presents Fast & Furious** on the Azimuth
-translation layer. It loads every DLL from `data\bin\mods\` before the game starts. Several mods are available in [Bullet4fun/FH2_ModsCollection](https://github.com/Bullet4fun/FH2_ModsCollection) repo.
+translation layer. It loads every DLL from `data\bin\mods\` before the game starts. Several mods are available in the [FH2 Mods Collection](https://github.com/Bullet4fun/FH2_ModsCollection) repo.
 
 ## Install
 
