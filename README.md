@@ -1,7 +1,7 @@
 # FH2 Mod Loader
 
 A mod loader for **Forza Horizon 2** and **Forza Horizon 2 Presents Fast & Furious** on the Azimuth
-translation layer. It loads every DLL from `data\bin\mods\` before the game starts.
+translation layer. It loads every DLL from `data\bin\mods\` before the game starts. Several mods are available in [Bullet4fun/FH2_ModsCollection](https://github.com/Bullet4fun/FH2_ModsCollection) repo.
 
 ## Install
 
@@ -49,6 +49,9 @@ python build.py path\to\zig.exe              # out\azimuth-tls.dll
 python build.py path\to\zig.exe --example    # out\FH2_HelloMod.dll
 python tests\run.py path\to\zig.exe           # tests
 ```
+## AI usage disclosure
+
+Claude was used in this project to create the mod loader.
 
 ## License
 
