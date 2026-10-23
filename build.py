@@ -10,7 +10,7 @@ import tempfile
 SOURCE = Path(__file__).resolve().parent
 LOADER_SOURCES = ["src/loader.c", "src/mod_games.c", "src/azimuth_tls.c", "src/azimuth_locate.c", "src/support.c"]
 EXAMPLE_SOURCES = ["examples/hello_mod/hello_mod.c"]
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 
 def version_resource(compiler, directory, filename, description, product, version):

@@ -62,3 +62,15 @@ unsigned mod_declared_games(const wchar_t *path) {
     FreeLibrary(mapped);
     return games;
 }
+
+int mod_file_name(const wchar_t *name) {
+    size_t n = 0;
+    while (name[n]) {
+        ++n;
+    }
+    if (n <= 4) {
+        return 0;
+    }
+    const wchar_t *ext = name + n - 4;
+    return ext[0] == L'.' && (ext[1] | 32) == L'd' && (ext[2] | 32) == L'l' && (ext[3] | 32) == L'l';
+}

@@ -22,6 +22,11 @@ int main(int argc, char **argv) {
         printf("FAIL: undeclared/missing read as %u/%u\n", none, missing);
         ++fails;
     }
+    if (!mod_file_name(L"FH2_SpotifyRadio.dll") || !mod_file_name(L"MOD.DLL") || mod_file_name(L"FH2_SpotifyRadio.dll_old") ||
+        mod_file_name(L"x.dllx") || mod_file_name(L".dll")) {
+        printf("FAIL: mod file names\n");
+        ++fails;
+    }
     printf(fails ? "%d FAILED\n" : "all passed\n", fails);
     return fails != 0;
 }

@@ -51,7 +51,7 @@ static void load_mods(unsigned char *image, unsigned game) {
     HANDLE search = FindFirstFileW(pattern, &found);
     if (search != INVALID_HANDLE_VALUE) {
         do {
-            if (!(found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && count < MAX_MODS) {
+            if (!(found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && mod_file_name(found.cFileName) && count < MAX_MODS) {
                 unsigned i = count++;
                 for (; i > 0 && name_before(found.cFileName, names[i - 1]); --i) {
                     memory_copy(names[i], names[i - 1], sizeof(names[i]));
