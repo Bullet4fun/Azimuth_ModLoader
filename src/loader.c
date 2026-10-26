@@ -7,6 +7,7 @@
 #include "support.h"
 
 #define MAX_MODS 64
+static const char MOD_LOADED[] = ": loaded\r\n";
 
 extern DWORD azimuth_tls_attached;
 static wchar_t settings_dir[PATH_CAPACITY], game_exe[PATH_CAPACITY], mods_dir[PATH_CAPACITY];
@@ -20,6 +21,18 @@ static void log_text(const char *text) {
     if (log_file != INVALID_HANDLE_VALUE) {
         WriteFile(log_file, text, (DWORD)text_length(text), &written, NULL);
     }
+}
+
+/* Starts a line "[HH:MM:SS] [LEVEL] [ModLoader]: ", the same layout as the mods' logs. */
+static void log_line(const char *level) {
+    SYSTEMTIME t;
+    GetLocalTime(&t);
+    char clock[12] = {'[', (char)('0' + t.wHour / 10), (char)('0' + t.wHour % 10), ':', (char)('0' + t.wMinute / 10),
+                      (char)('0' + t.wMinute % 10), ':', (char)('0' + t.wSecond / 10), (char)('0' + t.wSecond % 10), ']', ' ', 0};
+    log_text(clock);
+    log_text("[");
+    log_text(level);
+    log_text("] [ModLoader]: ");
 }
 
 static void log_wide(const wchar_t *text) { // mod file names: ASCII, anything else as '?'
@@ -41,8 +54,38 @@ static int name_before(const wchar_t *a, const wchar_t *b) { // case-insensitive
     }
 }
 
+/* Loads names[i]; returns the rest of its log line. */
+static const char *load_mod(FH2ModHost *host, unsigned i, unsigned game) {
+    size_t n = 0; // data folder: the DLL name without ".dll", plus a separator
+    while (names[i][n]) {
+        data_name[n] = names[i][n];
+        ++n;
+    }
+    n -= 4;
+    data_name[n++] = L'\\';
+    data_name[n] = 0;
+    if (!path_join(mod_path, mods_dir, names[i]) || !path_join(data_dir, mods_dir, data_name)) {
+        return ": path too long, skipped\r\n";
+    }
+    unsigned games = mod_declared_games(mod_path);
+    if (!((games ? games : FH2_GAME_FORZA_HORIZON_2) & game)) {
+        return ": made for another game, not loaded\r\n";
+    }
+    HMODULE module = LoadLibraryExW(mod_path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
+    if (!module) {
+        return ": could not be loaded\r\n";
+    }
+    FH2ModLoadFn load = (FH2ModLoadFn)(void *)GetProcAddress(module, "FH2ModLoad");
+    if (!load) {
+        FreeLibrary(module);
+        return ": not an FH2 mod (no FH2ModLoad export), unloaded\r\n";
+    }
+    return load(host) ? MOD_LOADED : ": loaded, but reported a failure (see its own log)\r\n";
+}
+
 static void load_mods(unsigned char *image, unsigned game) {
     if (!path_join(mods_dir, settings_dir, L"mods\\") || !path_join(pattern, mods_dir, L"*.dll")) {
+        log_line("ERROR");
         log_text("paths too long; no mods loaded\r\n");
         return;
     }
@@ -62,41 +105,16 @@ static void load_mods(unsigned char *image, unsigned game) {
         FindClose(search);
     }
     if (!count) {
+        log_line("INFO");
         log_text("no mods in data\\bin\\mods\\\r\n");
         return;
     }
     FH2ModHost host = {sizeof(host), FH2_MOD_API_VERSION, image, game_exe, settings_dir, mods_dir, data_dir, game};
     for (unsigned i = 0; i < count; ++i) {
+        const char *result = load_mod(&host, i, game);
+        log_line(result == MOD_LOADED ? "INFO" : "WARN");
         log_wide(names[i]);
-        size_t n = 0; // data folder: the DLL name without ".dll", plus a separator
-        while (names[i][n]) {
-            data_name[n] = names[i][n];
-            ++n;
-        }
-        n -= 4;
-        data_name[n++] = L'\\';
-        data_name[n] = 0;
-        if (!path_join(mod_path, mods_dir, names[i]) || !path_join(data_dir, mods_dir, data_name)) {
-            log_text(": path too long, skipped\r\n");
-            continue;
-        }
-        unsigned games = mod_declared_games(mod_path);
-        if (!((games ? games : FH2_GAME_FORZA_HORIZON_2) & game)) {
-            log_text(": made for another game, not loaded\r\n");
-            continue;
-        }
-        HMODULE module = LoadLibraryExW(mod_path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
-        if (!module) {
-            log_text(": could not be loaded\r\n");
-            continue;
-        }
-        FH2ModLoadFn load = (FH2ModLoadFn)(void *)GetProcAddress(module, "FH2ModLoad");
-        if (!load) {
-            log_text(": not an FH2 mod (no FH2ModLoad export), unloaded\r\n");
-            FreeLibrary(module);
-            continue;
-        }
-        log_text(load(&host) ? ": loaded\r\n" : ": loaded, but reported a failure (see its own log)\r\n");
+        log_text(result);
     }
 }
 
@@ -106,16 +124,25 @@ static void loader_attach(HINSTANCE instance) {
         return; // not running under azimuth.exe (or no folder): behave like the stock helper
     }
     if (path_join(log_path, settings_dir, L"FH2_ModLoader.log")) {
-        log_file = CreateFileW(log_path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS,
-                               FILE_ATTRIBUTE_NORMAL, NULL);
+        // emptied, then reopened append-only and shared: a mod may add its own line while it loads
+        // (each write lands at the end, so neither side overwrites the other)
+        log_file = CreateFileW(log_path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (log_file != INVALID_HANDLE_VALUE) {
+            CloseHandle(log_file);
+            log_file = CreateFileW(log_path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
+                                   FILE_ATTRIBUTE_NORMAL, NULL);
+        }
     }
-    log_text("FH2 mod loader (API 1)\r\n");
+    log_line("INFO");
+    log_text("FH2 Mod Loader " LOADER_VERSION " (API 1) by Bullet4fun: https://github.com/Bullet4fun/FH2_ModLoader\r\n");
     unsigned game = 0;
     unsigned char *image = azimuth_find_game_image(&game);
     if (!image) {
+        log_line("ERROR");
         log_text(status_get());
-        log_text("\r\nno mods loaded\r\n");
+        log_text("; no mods loaded\r\n");
     } else {
+        log_line("INFO");
         log_text(game == FH2_GAME_FAST_AND_FURIOUS ? "game: Forza Horizon 2 Presents Fast & Furious\r\n"
                                                     : "game: Forza Horizon 2\r\n");
         load_mods(image, game);

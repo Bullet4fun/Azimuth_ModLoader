@@ -4,13 +4,14 @@ Usage: python build.py /path/to/zig [--example] [--output PATH]
 
 import argparse
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 
 SOURCE = Path(__file__).resolve().parent
 LOADER_SOURCES = ["src/loader.c", "src/mod_games.c", "src/azimuth_tls.c", "src/azimuth_locate.c", "src/support.c"]
 EXAMPLE_SOURCES = ["examples/hello_mod/hello_mod.c"]
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 
 
 def version_resource(compiler, directory, filename, description, product, version):
@@ -47,34 +48,43 @@ END
 
 
 def build(compiler, output, directory, example):
+    # Every step runs in the build folder with relative names, and source paths are mapped to ".":
+    # file paths end up in the PDB id, so where the repo or the build folder lives must not matter.
     objects = []
     for filename in EXAMPLE_SOURCES if example else LOADER_SOURCES:
-        object_file = directory / (Path(filename).stem + ".obj")
+        object_file = Path(filename).stem + ".obj"
         subprocess.run([str(compiler), "clang", "-target", "x86_64-w64-windows-gnu", "-c", "-ffreestanding",
                         "-fno-builtin", "-fno-stack-protector", "-fms-extensions", "-funwind-tables", "-O2",
-                        "-Wall", "-Wextra", "-Werror", "-I", str(SOURCE / "src"), "-I", str(SOURCE / "include"),
+                        "-Wall", "-Wextra", "-Werror", f'-DLOADER_VERSION="{VERSION}"', "-I", str(SOURCE / "src"), "-I", str(SOURCE / "include"),
                         "-isystem", str(compiler.parent / "lib/include"),
                         "-isystem", str(compiler.parent / "lib/libc/include/any-windows-any"),
-                        str(SOURCE / filename), "-o", str(object_file)], check=True)
-        objects.append(str(object_file))
+                        f"-ffile-prefix-map={SOURCE}=.", f"-ffile-prefix-map={compiler.parent}=zig",
+                        str(SOURCE / filename), "-o", object_file], check=True, cwd=directory)
+        objects.append(object_file)
     libraries = []
     for name in ("kernel32", "ntdll"):  # import libraries from the .def files: no Windows SDK needed
-        library = directory / (name + ".lib")
+        library = name + ".lib"
         subprocess.run([str(compiler), "dlltool", "-m", "i386:x86-64", "-d", str(SOURCE / (name + ".def")),
-                        "-l", str(library)], check=True)
-        libraries.append(str(library))
+                        "-l", library], check=True, cwd=directory)
+        libraries.append(library)
     resource = (version_resource(compiler, directory, output.name, "FH2 mod example (FH2_ModLoader)",
                                  "FH2 Mod Loader", VERSION) if example else
                 version_resource(compiler, directory, output.name, "FH2 mod loader (Azimuth helper + data\\bin\\mods)",
                                  "FH2 Mod Loader", VERSION))
+    # the last commit's time instead of the clock: the same commit gives the same bytes, so the file
+    # scanned before a release is the file shipped (the public commit keeps the same time)
+    timestamp = subprocess.run(["git", "-c", "safe.directory=*", "log", "-1", "--format=%ct"], cwd=SOURCE,
+                               capture_output=True, text=True, check=True).stdout.strip()
     # /release (a PE checksum) and a debug directory keep antivirus ML engines quiet; the PDB
-    # stays in the build folder.
+    # stays in the build folder. /Brepro: the PDB id comes from the content, not at random.
     link = [str(compiler), "lld-link", "/dll", "/entry:DllMain", "/machine:x64", "/nodefaultlib", "/dynamicbase",
-            "/nxcompat", "/out:" + str(output), "/implib:" + str(directory / "out.lib"), *objects, *libraries,
-            resource, "/release", "/debug", "/pdb:" + str(directory / output.with_suffix(".pdb").name), "/pdbaltpath:%_PDB%"]
+            "/nxcompat", "/out:" + output.name, "/implib:out.lib", *objects, *libraries,
+            Path(resource).name, "/release", "/debug", "/pdb:" + output.with_suffix(".pdb").name, "/pdbaltpath:%_PDB%",
+            "/Brepro", "/timestamp:" + timestamp, "/pdbsourcepath:C:\\build"]  # not the random build folder
     if not example:
         link.append("/include:_tls_used")  # Azimuth's helper ABI: the TLS directory (src/azimuth_tls.c)
-    subprocess.run(link, check=True)
+    subprocess.run(link, check=True, cwd=directory)
+    shutil.copyfile(directory / output.name, output)
 
 
 def main():
