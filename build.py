@@ -69,7 +69,7 @@ def build(compiler, output, directory, example):
         libraries.append(library)
     resource = (version_resource(compiler, directory, output.name, "Azimuth Mod Loader example mod",
                                  "Azimuth Mod Loader", VERSION) if example else
-                version_resource(compiler, directory, output.name, "Azimuth Mod Loader (dinput8.dll for azimuth.exe + data\\bin\\mods)",
+                version_resource(compiler, directory, output.name, "Azimuth Mod Loader (dinput8.dll for azimuth.exe + mods)",
                                  "Azimuth Mod Loader", VERSION))
     # the last commit's time instead of the clock: the same commit gives the same bytes, so the file
     # scanned before a release is the file shipped (the public commit keeps the same time)
