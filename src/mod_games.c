@@ -12,7 +12,7 @@ static WORD read16(const unsigned char *p) {
     return value;
 }
 
-/* The mod's FH2ModGames export, read from the DLL mapped as an image resource: the system maps its
+/* The mod's AzimuthModGames export, read from the DLL mapped as an image resource: the system maps its
    sections but runs nothing (no DllMain, no imports, no TLS callbacks). Every offset is checked
    against the image size first. */
 unsigned mod_declared_games(const wchar_t *path) {
@@ -41,7 +41,7 @@ unsigned mod_declared_games(const wchar_t *path) {
             if (names < image_size && count <= (image_size - names) / 4 && ordinals < image_size &&
                 count <= (image_size - ordinals) / 2 && functions < image_size &&
                 function_count <= (image_size - functions) / 4) {
-                static const char wanted[] = "FH2ModGames";
+                static const char wanted[] = "AzimuthModGames";
                 for (DWORD i = 0; i < count; ++i) {
                     DWORD name = read32(base + names + 4 * i);
                     if (name >= image_size || image_size - name < sizeof(wanted) ||

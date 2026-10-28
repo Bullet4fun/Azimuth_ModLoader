@@ -10,9 +10,9 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def main():
     zig = Path(sys.argv[1]).resolve()
-    with tempfile.TemporaryDirectory(prefix="fh2-loader-tests-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="azimuth-loader-tests-") as tmp:
         tmp = Path(tmp)
-        loader, example = tmp / "azimuth-tls.dll", tmp / "FH2_HelloMod.dll"
+        loader, example = tmp / "dinput8.dll", tmp / "HelloMod.dll"
         subprocess.run([sys.executable, str(ROOT / "build.py"), str(zig), "--output", str(loader)], check=True,
                        capture_output=True)
         subprocess.run([sys.executable, str(ROOT / "build.py"), str(zig), "--example", "--output", str(example)],

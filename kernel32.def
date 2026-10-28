@@ -71,3 +71,4 @@ EXPORTS
     ReleaseSRWLockShared
     AcquireSRWLockExclusive
     ReleaseSRWLockExclusive
+    CreateToolhelp32Snapshot

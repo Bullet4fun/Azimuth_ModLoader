@@ -1,12 +1,12 @@
-/* The smallest FH2 mod: data\bin\mods\FH2_HelloMod.dll. On load it creates its own folder
-   (data\bin\mods\FH2_HelloMod\), writes hello.log there, and checks the bytes of one game function
+/* The smallest Azimuth mod: mods\HelloMod.dll. On load it creates its own folder
+   (mods\HelloMod\), writes hello.log there, and checks the bytes of one game function
    the way a mod must before patching it. It patches nothing. Kernel32 only, no C runtime. */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include "fh2_mod.h"
+#include "azimuth_mod.h"
 
 // It runs in both games (the bytes it checks below are only checked in Forza Horizon 2).
-FH2_MOD_GAMES(FH2_GAME_FORZA_HORIZON_2 | FH2_GAME_FAST_AND_FURIOUS);
+AZIMUTH_MOD_GAMES(AZIMUTH_GAME_FORZA_HORIZON_2 | AZIMUTH_GAME_FAST_AND_FURIOUS);
 
 static HANDLE log_file = INVALID_HANDLE_VALUE;
 
@@ -40,9 +40,9 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
     return TRUE;
 }
 
-__declspec(dllexport) int FH2ModLoad(const FH2ModHost *host) {
+__declspec(dllexport) int AzimuthModLoad(const AzimuthModHost *host) {
     // Refuse a loader this mod was not built for: the struct may only grow, the version must match.
-    if (!host || host->size < sizeof(*host) || host->api_version != FH2_MOD_API_VERSION || !host->game_image) {
+    if (!host || host->size < sizeof(*host) || host->api_version != AZIMUTH_MOD_API_VERSION || !host->game_image) {
         return 0;
     }
     static wchar_t path[MAX_PATH];
@@ -54,9 +54,9 @@ __declspec(dllexport) int FH2ModLoad(const FH2ModHost *host) {
     if (log_file == INVALID_HANDLE_VALUE) {
         return 0;
     }
-    log_text(host->game == FH2_GAME_FAST_AND_FURIOUS ? "Hello from FH2_HelloMod in Fast & Furious.\r\n"
-                                                     : "Hello from FH2_HelloMod in Forza Horizon 2.\r\n");
-    if (host->game != FH2_GAME_FORZA_HORIZON_2) {
+    log_text(host->game == AZIMUTH_GAME_FAST_AND_FURIOUS ? "Hello from HelloMod in Fast & Furious.\r\n"
+                                                     : "Hello from HelloMod in Forza Horizon 2.\r\n");
+    if (host->game != AZIMUTH_GAME_FORZA_HORIZON_2) {
         CloseHandle(log_file); // the address below is Forza Horizon 2's: every RVA differs in the other game
         return 1;
     }

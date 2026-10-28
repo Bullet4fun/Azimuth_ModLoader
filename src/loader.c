@@ -1,18 +1,18 @@
-/* FH2 mod loader: data\bin\azimuth-tls.dll. Provides Azimuth's helper ABI (azimuth_tls.c),
-   finds the FH2 image Azimuth mapped (azimuth_locate.c), then loads data\bin\mods\*.dll in name
-   order and calls each FH2ModLoad. Writes data\bin\FH2_ModLoader.log. Kernel32 only. */
+/* Azimuth Mod Loader: dinput8.dll next to azimuth.exe (dinput8_proxy.c). When Azimuth has mapped the
+   game, finds its image (azimuth_locate.c), then loads mods\*.dll (beside azimuth.exe) in name
+   order and calls each AzimuthModLoad. Writes mods\AzimuthModLoader.log. Kernel32 only. */
 #include "azimuth_locate.h"
-#include "fh2_mod.h"
+#include "azimuth_mod.h"
 #include "mod_games.h"
 #include "support.h"
 
 #define MAX_MODS 64
 static const char MOD_LOADED[] = ": loaded\r\n";
 
-extern DWORD azimuth_tls_attached;
-static wchar_t settings_dir[PATH_CAPACITY], game_exe[PATH_CAPACITY], mods_dir[PATH_CAPACITY];
+static wchar_t game_exe[PATH_CAPACITY], mods_dir[PATH_CAPACITY];
 static wchar_t pattern[PATH_CAPACITY], mod_path[PATH_CAPACITY], log_path[PATH_CAPACITY];
 static wchar_t data_dir[PATH_CAPACITY], data_name[MAX_PATH + 1];
+static unsigned game; // AZIMUTH_GAME_* of the game Azimuth mapped
 static wchar_t names[MAX_MODS][MAX_PATH];
 static HANDLE log_file = INVALID_HANDLE_VALUE;
 
@@ -55,7 +55,7 @@ static int name_before(const wchar_t *a, const wchar_t *b) { // case-insensitive
 }
 
 /* Loads names[i]; returns the rest of its log line. */
-static const char *load_mod(FH2ModHost *host, unsigned i, unsigned game) {
+static const char *load_mod(AzimuthModHost *host, unsigned i, unsigned game) {
     size_t n = 0; // data folder: the DLL name without ".dll", plus a separator
     while (names[i][n]) {
         data_name[n] = names[i][n];
@@ -68,23 +68,23 @@ static const char *load_mod(FH2ModHost *host, unsigned i, unsigned game) {
         return ": path too long, skipped\r\n";
     }
     unsigned games = mod_declared_games(mod_path);
-    if (!((games ? games : FH2_GAME_FORZA_HORIZON_2) & game)) {
+    if (!((games ? games : AZIMUTH_GAME_FORZA_HORIZON_2) & game)) {
         return ": made for another game, not loaded\r\n";
     }
     HMODULE module = LoadLibraryExW(mod_path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
     if (!module) {
         return ": could not be loaded\r\n";
     }
-    FH2ModLoadFn load = (FH2ModLoadFn)(void *)GetProcAddress(module, "FH2ModLoad");
+    AzimuthModLoadFn load = (AzimuthModLoadFn)(void *)GetProcAddress(module, "AzimuthModLoad");
     if (!load) {
         FreeLibrary(module);
-        return ": not an FH2 mod (no FH2ModLoad export), unloaded\r\n";
+        return ": not an Azimuth mod (no AzimuthModLoad export), unloaded\r\n";
     }
     return load(host) ? MOD_LOADED : ": loaded, but reported a failure (see its own log)\r\n";
 }
 
 static void load_mods(unsigned char *image, unsigned game) {
-    if (!path_join(mods_dir, settings_dir, L"mods\\") || !path_join(pattern, mods_dir, L"*.dll")) {
+    if (!path_join(pattern, mods_dir, L"*.dll")) {
         log_line("ERROR");
         log_text("paths too long; no mods loaded\r\n");
         return;
@@ -106,10 +106,10 @@ static void load_mods(unsigned char *image, unsigned game) {
     }
     if (!count) {
         log_line("INFO");
-        log_text("no mods in data\\bin\\mods\\\r\n");
+        log_text("no mods in the mods folder\r\n");
         return;
     }
-    FH2ModHost host = {sizeof(host), FH2_MOD_API_VERSION, image, game_exe, settings_dir, mods_dir, data_dir, game};
+    AzimuthModHost host = {sizeof(host), AZIMUTH_MOD_API_VERSION, image, game_exe, mods_dir, data_dir, game};
     for (unsigned i = 0; i < count; ++i) {
         const char *result = load_mod(&host, i, game);
         log_line(result == MOD_LOADED ? "INFO" : "WARN");
@@ -118,15 +118,86 @@ static void load_mods(unsigned char *image, unsigned game) {
     }
 }
 
-static void loader_attach(HINSTANCE instance) {
-    azimuth_tls_attached = GetCurrentThreadId();
-    if (!azimuth_resolve_game_paths(instance, settings_dir, game_exe)) {
-        return; // not running under azimuth.exe (or no folder): behave like the stock helper
+/* The import slot azimuth.exe calls `name` from `dll` through, or NULL. */
+static void **import_slot(unsigned char *base, const char *dll, const char *name) {
+    IMAGE_NT_HEADERS64 *nt = (IMAGE_NT_HEADERS64 *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
+    IMAGE_DATA_DIRECTORY *directory = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    if (!directory->VirtualAddress) {
+        return 0;
     }
-    if (path_join(log_path, settings_dir, L"FH2_ModLoader.log")) {
+    for (IMAGE_IMPORT_DESCRIPTOR *d = (IMAGE_IMPORT_DESCRIPTOR *)(base + directory->VirtualAddress); d->Name; ++d) {
+        if (!d->OriginalFirstThunk || !text_equal_ignore_case((const char *)base + d->Name, dll)) {
+            continue;
+        }
+        IMAGE_THUNK_DATA64 *names = (IMAGE_THUNK_DATA64 *)(base + d->OriginalFirstThunk);
+        for (unsigned i = 0; names[i].u1.AddressOfData; ++i) {
+            if (!IMAGE_SNAP_BY_ORDINAL64(names[i].u1.Ordinal) &&
+                text_equal_ignore_case(((IMAGE_IMPORT_BY_NAME *)(base + names[i].u1.AddressOfData))->Name, name)) {
+                return (void **)(base + d->FirstThunk) + i;
+            }
+        }
+    }
+    return 0;
+}
+
+typedef HANDLE(WINAPI *SnapshotFn)(DWORD, DWORD);
+static SnapshotFn original_snapshot;
+static void **snapshot_slot;
+static volatile LONG loading, finished;
+
+static int set_slot(void *value) {
+    DWORD protection, ignored;
+    if (!VirtualProtect(snapshot_slot, sizeof(void *), PAGE_READWRITE, &protection)) {
+        return 0;
+    }
+    *snapshot_slot = value;
+    VirtualProtect(snapshot_slot, sizeof(void *), protection, &ignored);
+    return 1;
+}
+
+static void close_log(void) {
+    if (log_file != INVALID_HANDLE_VALUE) {
+        CloseHandle(log_file);
+        log_file = INVALID_HANDLE_VALUE;
+    }
+}
+
+/* Azimuth takes a thread snapshot only to bind a static TLS template, the game's once it has
+   mapped the game and before any game code runs. The first call that finds the game image loads
+   the mods, ahead of the snapshot, so threads the mods start get the game's TLS as well. */
+static HANDLE WINAPI on_snapshot(DWORD flags, DWORD process) {
+    if (!finished && !InterlockedCompareExchange(&loading, 1, 0)) {
+        unsigned char *image = azimuth_find_game(game_exe, &game);
+        if (image) {
+            log_line("INFO");
+            log_text("game: ");
+            log_text(azimuth_game_name(game));
+            log_text("\r\n");
+            load_mods(image, game);
+            close_log();
+            finished = 1;
+            set_slot((void *)(uintptr_t)original_snapshot);
+        } else {
+            log_line("INFO");
+            log_text(status_get());
+            log_text("; waiting for the next TLS binding\r\n");
+        }
+        loading = 0; // no game yet (a library's TLS, or the launcher's): wait for the next snapshot
+    }
+    return original_snapshot(flags, process);
+}
+
+static void loader_attach(void) {
+    if (!azimuth_mods_dir(mods_dir)) {
+        return; // not azimuth.exe: only the dinput8 exports work
+    }
+    CreateDirectoryW(mods_dir, NULL); // the log goes there even before any mod is installed
+    if (path_join(log_path, mods_dir, L"AzimuthModLoader.log")) {
         // emptied, then reopened append-only and shared: a mod may add its own line while it loads
-        // (each write lands at the end, so neither side overwrites the other)
-        log_file = CreateFileW(log_path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        // (each write lands at the end, so neither side overwrites the other); shared for writing
+        // as well, since azimuth.exe restarts itself (back to the launcher) while the old one has it
+        log_file = CreateFileW(log_path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_ALWAYS,
+                               FILE_ATTRIBUTE_NORMAL, NULL);
         if (log_file != INVALID_HANDLE_VALUE) {
             CloseHandle(log_file);
             log_file = CreateFileW(log_path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
@@ -134,29 +205,27 @@ static void loader_attach(HINSTANCE instance) {
         }
     }
     log_line("INFO");
-    log_text("FH2 Mod Loader " LOADER_VERSION " (API 1) by Bullet4fun: https://github.com/Bullet4fun/FH2_ModLoader\r\n");
-    unsigned game = 0;
-    unsigned char *image = azimuth_find_game_image(&game);
-    if (!image) {
+    log_text("Azimuth Mod Loader " LOADER_VERSION " (API 2) by Bullet4fun: https://github.com/Bullet4fun/Azimuth_ModLoader\r\n");
+    snapshot_slot = import_slot((unsigned char *)GetModuleHandleW(NULL), "KERNEL32.dll", "CreateToolhelp32Snapshot");
+    if (!snapshot_slot) {
         log_line("ERROR");
-        log_text(status_get());
-        log_text("; no mods loaded\r\n");
-    } else {
-        log_line("INFO");
-        log_text(game == FH2_GAME_FAST_AND_FURIOUS ? "game: Forza Horizon 2 Presents Fast & Furious\r\n"
-                                                    : "game: Forza Horizon 2\r\n");
-        load_mods(image, game);
+        log_text("azimuth.exe takes no thread snapshots (an unsupported Azimuth version); no mods loaded\r\n");
+        close_log();
+        return;
     }
-    if (log_file != INVALID_HANDLE_VALUE) {
-        CloseHandle(log_file);
-        log_file = INVALID_HANDLE_VALUE;
+    original_snapshot = (SnapshotFn)*snapshot_slot;
+    if (!set_slot((void *)(uintptr_t)on_snapshot)) {
+        log_line("ERROR");
+        log_text("cannot hook azimuth.exe's thread snapshot import; no mods loaded\r\n");
+        close_log();
     }
 }
 
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
     (void)reserved;
     if (reason == DLL_PROCESS_ATTACH) {
-        loader_attach(instance);
+        DisableThreadLibraryCalls(instance);
+        loader_attach();
     }
     return TRUE;
 }

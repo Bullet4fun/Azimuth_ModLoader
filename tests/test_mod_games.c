@@ -1,7 +1,7 @@
 /* mod_declared_games on real DLLs. Usage: test_mod_games <example mod> <loader dll>
-   The example declares both games; the loader exports no FH2ModGames; a missing file reads as none. */
+   The example declares both games; the loader exports no AzimuthModGames; a missing file reads as none. */
 #include "mod_games.h"
-#include "fh2_mod.h"
+#include "azimuth_mod.h"
 #include <stdio.h>
 
 int main(int argc, char **argv) {
@@ -14,7 +14,7 @@ int main(int argc, char **argv) {
     int fails = 0;
     unsigned both = mod_declared_games(example), none = mod_declared_games(loader);
     unsigned missing = mod_declared_games(L"C:\\no\\such\\mod.dll");
-    if (both != (FH2_GAME_FORZA_HORIZON_2 | FH2_GAME_FAST_AND_FURIOUS)) {
+    if (both != (AZIMUTH_GAME_FORZA_HORIZON_2 | AZIMUTH_GAME_FAST_AND_FURIOUS)) {
         printf("FAIL: example mod reads as %u\n", both);
         ++fails;
     }

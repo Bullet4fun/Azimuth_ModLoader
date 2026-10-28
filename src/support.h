@@ -1,5 +1,5 @@
-#ifndef FH2_SUPPORT_H
-#define FH2_SUPPORT_H
+#ifndef AZIMUTH_LOADER_SUPPORT_H
+#define AZIMUTH_LOADER_SUPPORT_H
 #include "game.h"
 void memory_copy(void *destination, const void *source, size_t size);
 int memory_equal(const void *left, const void *right, size_t size);
