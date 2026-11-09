@@ -4,7 +4,7 @@ A mod loader for the games the [Azimuth](https://almost-there-games.itch.io/azim
 layer runs: **Forza Horizon 2**, **Forza Horizon 2 Presents Fast & Furious**, **Forza Horizon 3**,
 **Forza Motorsport 5** and **Forza Motorsport 6**. It loads every DLL from the `mods` folder next
 to `azimuth.exe` once Azimuth has loaded the game picked in its launcher, before any game code
-runs. Mods for Forza Horizon 2 are in the [FH2 Mods Collection](https://github.com/Bullet4fun/FH2_ModsCollection) repo.
+runs. Mods are in the [FH Mods Collection](https://github.com/Bullet4fun/FH_ModsCollection) repo.
 
 Requires Azimuth 1.0.3 or newer.
 
